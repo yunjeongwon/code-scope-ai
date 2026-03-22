@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from openai import OpenAI
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import OPENAI_API_KEY
@@ -74,7 +75,7 @@ def query(queryRequest: QueryRequest, db: Session = Depends(get_db)):
         "references": references
     }
 
-class QueryRequest:
+class QueryRequest(BaseModel):
     repo_id: int
     question: str
 
