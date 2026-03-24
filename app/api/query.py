@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from openai import OpenAI
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import OPENAI_API_KEY
@@ -25,31 +26,83 @@ def query(queryRequest: QueryRequest, db: Session = Depends(get_db)):
 
     query_vector = query_embeddings.data[0].embedding
 
+    query = db.query(CodeChunk)
+
+    query = query.filter(CodeChunk.repo_id == repo_id)
+    query = query.filter(CodeChunk.function_name.isnot(None))
+
+    STOP_WORD = {"어디야", "뭐야", "어떻게", "해줘", "알려줘"}
+
+    keywords = [
+        k for k in question.lower().split() if k not in STOP_WORD
+    ]
+
+    KEYWORD_MAP = {
+        "생성": "create",
+        "유저": "user",
+        "삭제": "delete",
+        "조회": "get",
+    }
+
+    processed_keywords = []
+
+    for k in keywords:
+        if k in KEYWORD_MAP:
+            processed_keywords.append(KEYWORD_MAP[k])
+        else:
+            processed_keywords.append(k)
+
+    conditions = [
+        CodeChunk.function_name.ilike(f"%{k}%")
+        for k in processed_keywords
+    ]
+
+    if conditions:
+        query = query.filter(or_(*conditions))
+
+
+    # vector
     results = (
-        db.query(CodeChunk)
-            .where(CodeChunk.repo_id == repo_id)
+        query
             .order_by(CodeChunk.embedding.l2_distance(query_vector))
             .limit(3)
             .all()
     )
 
+    # score 혼합
+    candidates = results
+
+    def score_chunk():
+        score = 0
+        for k in processed_keywords:
+            if chunk.function_name and k in chunk.function_name:
+                score += 2
+            
+            if k in chunk.content:
+                score += 1
+
+        return score
+
+    reranked = sorted(candidates, key=score_chunk, reverse=True)
+
+    top_results = reranked[:3]
+
     references = []
     context_parts = []
 
-    for chunk in results:
+    for chunk in top_results:
         references.append({
-            "file_path": chunk.file_path,
-            "function_name": chunk.function_name,
+            "content": chunk.content,
             "start_line": chunk.start_line,
             "end_line": chunk.end_line,
+            "file_path": chunk.file_path,
+            "function_name": chunk.function_name,
+            "class_name": chunk.class_name,
+            "chunk_type": chunk.chunk_type,
+            "language": chunk.language,
         })
 
-        context_parts.append(f"""
-            파일: {chunk.file_path}
-            함수: {chunk.function_name}
-
-            {chunk.content}
-            """)
+        context_parts.append(f"파일: {chunk.file_path}\n함수: {chunk.function_name}\n\n{chunk.content}")
 
     context = "\n".join(context_parts)
 

@@ -84,53 +84,78 @@ def ingest_repo(repo_id: int, repo_url: str):
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
 
+                def get_chunk_type(line: str):
+                    stripped = line.strip()
+
+                    if stripped.startswith("def "):
+                        return "function"
+
+                    if stripped.startswith("class "):
+                        return "class"
+                    
+                    return None
+
+                def extract_name(line: str, chunk_type: str):
+                    line = line.strip()
+
+                    if chunk_type == "function":
+                        return line.split("(")[0].replace("def", "").strip()
+
+                    if chunk_type == "class":
+                        return line.split("(")[0].replace("class", "").strip()
+                    
+                    return None
+
                 lines = content.split("\n")
 
                 chunks = []
                 current_chunk = []
                 start_line = 1
-
-                def is_function_or_class(line: str):
-                    stripped = line.strip()
-                    return stripped.startswith("def ") or stripped.startswith("class ")
-
-                def extract_function_name(line: str):
-                    line = line.strip()
-
-                    if line.startswith("def "):
-                        return line.split("(")[0].replace("def", "").strip()
-
-                    if line.startswith("class "):
-                        return line.split("(")[0].replace("class", "").strip()
-                    
-                    return None
+                current_class = None
 
                 for idx, line in enumerate(lines):
-                    if is_function_or_class(line) and current_chunk:
-                        chunk_content = "\n".join(current_chunk)
+                    chunk_type = get_chunk_type(line)
+
+                    if chunk_type and current_chunk:
+                        first_line = current_chunk[0]
+                        first_type = get_chunk_type(first_line)
 
                         chunks.append({
-                            "content": chunk_content,
+                            "content": "\n".join(current_chunk),
                             "start_line": start_line,
                             "end_line": idx,
                             "file_path": file_path,
-                            "function_name": extract_function_name(current_chunk[0])
+                            "function_name": extract_name(first_line, first_type) if first_type == "function" else None,
+                            "class_name": current_class,
+                            "chunk_type": first_type
                         })
 
                         current_chunk = []
                         start_line =  idx + 1
                     
+                    if chunk_type == "class":
+                        current_class = extract_name(line, "class")
+                    
                     current_chunk.append(line)
                 
                 if current_chunk:
+                    first_line = current_chunk[0]
+                    first_type = get_chunk_type(first_line)
+
                     chunks.append({
                         "content": "\n".join(current_chunk),
                         "start_line": start_line,
                         "end_line": len(lines),
                         "file_path": file_path,
+                        "function_name": extract_name(first_line, first_type) if first_type == "function" else None,
+                        "class_name": current_class,
+                        "chunk_type": first_type
                     })
 
                 for chunk in chunks:
+                    if not chunk["function_name"] and not chunk["class_name"]:
+                        continue
+
                     embedding_response = client.embeddings.create(
                         model="text-embedding-3-small",
                         input=chunk["content"]
@@ -140,11 +165,14 @@ def ingest_repo(repo_id: int, repo_url: str):
 
                     codeChunk = CodeChunk(
                         repo_id=repo_id,
-                        content=chunk["content"],
                         embedding=vector,
-                        file_path=chunk["file_path"],
+                        content=chunk["content"],
                         start_line=chunk["start_line"],
                         end_line=chunk["end_line"],
+                        file_path=chunk["file_path"],
+                        function_name=chunk["function_name"],
+                        class_name=chunk["class_name"],
+                        chunk_type=chunk["chunk_type"],
                         language=file.split(".")[-1],
                     )
 
