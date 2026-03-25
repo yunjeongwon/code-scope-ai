@@ -182,6 +182,7 @@ def ingest_repo(repo_id: int, repo_url: str):
         db.commit()
 
     except Exception as e:
+        print("ERROR:", e)
         if repo:
             repo.status = "FAILED"
 

@@ -31,4 +31,7 @@ class CodeChunk(Base):
     start_line = Column(Integer)
     end_line = Column(Integer)
 
+    class_name = Column(String)
+    chunk_type = Column(String)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

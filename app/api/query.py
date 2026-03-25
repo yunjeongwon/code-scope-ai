@@ -72,7 +72,7 @@ def query(queryRequest: QueryRequest, db: Session = Depends(get_db)):
     # score 혼합
     candidates = results
 
-    def score_chunk():
+    def score_chunk(chunk):
         score = 0
         for k in processed_keywords:
             if chunk.function_name and k in chunk.function_name:
