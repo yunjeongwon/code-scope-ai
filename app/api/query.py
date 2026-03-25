@@ -69,7 +69,7 @@ def query(queryRequest: QueryRequest, db: Session = Depends(get_db)):
             .all()
     )
 
-    # score 혼합
+    # score 혼합 rerank
     candidates = results
 
     def score_chunk(chunk):
